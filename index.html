@@ -1,0 +1,618 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GTM Milestone Dashboard</title>
+<style>
+  :root{
+    --blue:#2563eb; --blue-bg:#eff6ff; --blue-border:#bfdbfe;
+    --ink:#1e293b; --ink-2:#475569; --ink-3:#94a3b8;
+    --bg:#f1f5f9; --panel:#ffffff; --line:#e2e8f0;
+    --red:#dc2626; --red-bg:#fef2f2; --orange:#ea580c; --orange-bg:#fff7ed;
+    --green:#16a34a; --green-bg:#f0fdf4; --purple:#7c3aed; --purple-bg:#f5f3ff;
+    --radius:12px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;font-family:"Segoe UI","Microsoft YaHei",system-ui,sans-serif;}
+  body{background:var(--bg);color:var(--ink);padding:24px;max-width:1280px;margin:0 auto;}
+  /* header */
+  .header{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:20px;flex-wrap:wrap;}
+  .header h1{font-size:22px;font-weight:700;letter-spacing:.2px;}
+  .header .sub{font-size:13px;color:var(--ink-3);margin-top:2px;}
+  .header-actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap;}
+  .lang-toggle{display:flex;background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:3px;overflow:hidden;}
+  .lang-toggle button{border:0;background:transparent;padding:6px 16px;border-radius:999px;font-size:13px;cursor:pointer;color:var(--ink-2);font-weight:600;}
+  .lang-toggle button.on{background:var(--blue);color:#fff;}
+  .btn{border:1px solid var(--line);background:var(--panel);color:var(--ink);padding:8px 14px;border-radius:8px;font-size:13px;cursor:pointer;font-weight:600;}
+  .btn:hover{border-color:var(--blue);color:var(--blue);}
+  .btn.primary{background:var(--blue);border-color:var(--blue);color:#fff;}
+  .btn.primary:hover{background:#1d4ed8;color:#fff;}
+  .btn.danger:hover{border-color:var(--red);color:var(--red);}
+  /* panels */
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:18px 20px;margin-bottom:16px;}
+  .panel-label{font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);margin-bottom:12px;}
+  .row{display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end;}
+  .field{display:flex;flex-direction:column;gap:5px;}
+  .field label{font-size:12px;color:var(--ink-2);font-weight:600;}
+  .field input,.field select{border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:14px;color:var(--ink);background:#fff;min-width:150px;}
+  .field input:focus,.field select:focus{outline:none;border-color:var(--blue);}
+  /* progress */
+  .progress-wrap{flex:1;min-width:220px;}
+  .progress-meta{display:flex;justify-content:space-between;font-size:12px;color:var(--ink-2);margin-bottom:6px;}
+  .progress-bar{height:8px;background:var(--line);border-radius:99px;overflow:hidden;}
+  .progress-fill{height:100%;background:var(--blue);border-radius:99px;transition:width .3s;}
+  /* stats */
+  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:16px;}
+  .stat{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:16px 18px;}
+  .stat .num{font-size:28px;font-weight:700;line-height:1.1;}
+  .stat .lbl{font-size:12px;color:var(--ink-2);margin-top:4px;font-weight:600;}
+  .stat.total .num{color:var(--ink);}
+  .stat.done .num{color:var(--green);}
+  .stat.overdue .num{color:var(--red);}
+  .stat.soon .num{color:var(--orange);}
+  .stat.overdue{border-color:#fecaca;background:linear-gradient(0deg,var(--red-bg),#fff);}
+  .stat.soon{border-color:#fed7aa;background:linear-gradient(0deg,var(--orange-bg),#fff);}
+  /* timeline */
+  .lane{display:flex;align-items:center;gap:12px;margin-bottom:14px;}
+  .lane:last-child{margin-bottom:0;}
+  .lane-name{width:150px;flex-shrink:0;font-size:12px;font-weight:700;color:var(--ink-2);text-align:right;}
+  .lane-track{flex:1;position:relative;height:34px;background:var(--bg);border-radius:8px;}
+  .lane-line{position:absolute;left:10px;right:10px;top:50%;height:2px;background:var(--line);}
+  .dot{position:absolute;top:50%;transform:translate(-50%,-50%);width:14px;height:14px;border-radius:50%;border:3px solid #fff;box-shadow:0 0 0 1px var(--line);cursor:default;}
+  .dot.s-done{background:var(--green);}
+  .dot.s-overdue{background:var(--red);}
+  .dot.s-soon{background:var(--orange);}
+  .dot.s-normal{background:var(--blue);}
+  .dot.s-reminder{background:#fff;box-shadow:0 0 0 2px var(--ink-3);}
+  .tl-range{display:flex;justify-content:space-between;font-size:11px;color:var(--ink-3);margin-top:8px;padding-left:162px;}
+  /* milestone groups */
+  .group{margin-bottom:20px;}
+  .group:last-child{margin-bottom:0;}
+  .group-head{display:flex;align-items:center;gap:10px;margin-bottom:10px;}
+  .group-tag{font-size:12px;font-weight:700;color:#fff;background:var(--ink-2);padding:3px 12px;border-radius:99px;}
+  .group-tag.media{background:var(--blue);}
+  .group-tag.web{background:var(--purple);}
+  .group-tag.region{background:var(--orange);}
+  .group-tag.kol{background:var(--green);}
+  .group-count{font-size:12px;color:var(--ink-3);}
+  .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:12px;}
+  .card{background:#fff;border:1px solid var(--line);border-left:4px solid var(--ink-3);border-radius:10px;padding:12px 14px;}
+  .card.done{border-left-color:var(--green);}
+  .card.overdue{border-left-color:var(--red);background:linear-gradient(90deg,var(--red-bg),#fff 40%);}
+  .card.soon{border-left-color:var(--orange);background:linear-gradient(90deg,var(--orange-bg),#fff 40%);}
+  .card.reminder-card{border-style:dashed;border-left-style:solid;border-left-color:var(--ink-3);background:var(--bg);}
+  .date-row{display:flex;justify-content:space-between;align-items:center;background:var(--bg);border-radius:8px;padding:8px 12px;margin-bottom:10px;}
+  .m-date{font-size:19px;font-weight:800;color:var(--blue);letter-spacing:.2px;}
+  .card.overdue .m-date{color:var(--red);}
+  .card.soon .m-date{color:var(--orange);}
+  .card.done .m-date{color:var(--green);}
+  .card.reminder-card .m-date{color:var(--ink-2);font-weight:700;}
+  .m-ddl{font-size:12px;font-weight:800;color:#fff;background:var(--ink-2);border-radius:99px;padding:3px 11px;white-space:nowrap;}
+  .card.overdue .m-ddl{background:var(--red);}
+  .card.soon .m-ddl{background:var(--orange);}
+  .card.done .m-ddl{background:var(--green);}
+  .m-title{font-size:14px;font-weight:700;margin-bottom:2px;}
+  .m-desc{font-size:12px;color:var(--ink-2);margin-bottom:10px;line-height:1.5;}
+  .badge-row{display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;align-items:center;}
+  .badge{font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;background:var(--blue-bg);color:var(--blue);border:1px solid var(--blue-border);}
+  .badge.rule{background:#f8fafc;color:var(--ink-2);border-color:var(--line);font-family:Consolas,monospace;}
+  .badge.locked{background:var(--purple-bg);color:var(--purple);border-color:#ddd6fe;}
+  .badge.remind-b{background:#f8fafc;color:var(--ink-2);border-color:var(--line);}
+  .link-btn{font-size:11px;color:var(--ink-3);background:none;border:none;cursor:pointer;text-decoration:underline;padding:0;}
+  .link-btn:hover{color:var(--purple);}
+  .seg{display:flex;gap:0;border:1px solid var(--line);border-radius:8px;overflow:hidden;width:fit-content;margin-bottom:8px;}
+  .seg button{border:0;background:#fff;padding:5px 12px;font-size:12px;cursor:pointer;color:var(--ink-2);border-right:1px solid var(--line);}
+  .seg button:last-child{border-right:0;}
+  .seg button.on-ns{background:#f1f5f9;color:var(--ink);font-weight:700;}
+  .seg button.on-ip{background:var(--orange-bg);color:var(--orange);font-weight:700;}
+  .seg button.on-done{background:var(--green-bg);color:var(--green);font-weight:700;}
+  .ctrl-row{display:flex;flex-direction:column;gap:6px;}
+  .ctrl-row input{border:1px solid var(--line);border-radius:7px;padding:6px 9px;font-size:12px;width:100%;}
+  .ctrl-row input:focus{outline:none;border-color:var(--blue);}
+  /* review */
+  .review-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;}
+  .review-col{border:1px solid var(--line);border-radius:10px;overflow:hidden;}
+  .review-col .rc-head{padding:8px 14px;font-size:12px;font-weight:700;color:#fff;}
+  .review-col.overdue-c .rc-head{background:var(--red);}
+  .review-col.soon-c .rc-head{background:var(--orange);}
+  .review-col.mid-c .rc-head{background:var(--blue);}
+  .rc-body{padding:10px 14px;min-height:60px;}
+  .rc-item{font-size:12px;padding:6px 0;border-bottom:1px dashed var(--line);color:var(--ink-2);line-height:1.5;}
+  .rc-item:last-child{border-bottom:0;}
+  .rc-item b{color:var(--ink);}
+  .empty-hint{color:var(--ink-3);font-size:13px;padding:8px 0;}
+  .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;padding:10px 20px;border-radius:8px;font-size:13px;opacity:0;pointer-events:none;transition:opacity .3s;}
+  .toast.show{opacity:.95;}
+  @media (max-width:860px){
+    .stats{grid-template-columns:repeat(2,1fr);}
+    .review-grid{grid-template-columns:1fr;}
+    .lane-name{width:90px;font-size:11px;}
+    .tl-range{padding-left:102px;}
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div>
+    <h1 id="hTitle"></h1>
+    <div class="sub" id="hSub"></div>
+  </div>
+  <div class="header-actions">
+    <div class="lang-toggle">
+      <button id="langCn" onclick="setLang('cn')">中文</button>
+      <button id="langEn" onclick="setLang('en')">EN</button>
+    </div>
+    <button class="btn" id="btnExport" onclick="exportData()"></button>
+    <button class="btn" id="btnImport" onclick="document.getElementById('importFile').click()"></button>
+    <input type="file" id="importFile" accept="application/json,.json" style="display:none" onchange="importData(this)">
+    <button class="btn primary" id="btnCopy" onclick="copyReport()"></button>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="panel-label" id="plSetup"></div>
+  <div class="row">
+    <div class="field">
+      <label id="lblProject"></label>
+      <div style="display:flex;gap:6px;">
+        <select id="projSelect" onchange="switchProject(this.value)" style="min-width:180px;"></select>
+        <button class="btn" id="btnRename" onclick="renameProject()"></button>
+        <button class="btn" id="btnNew" onclick="newProject()"></button>
+        <button class="btn danger" id="btnDel" onclick="deleteProject()"></button>
+      </div>
+    </div>
+    <div class="field"><label id="lblPilot"></label><input type="date" id="inPilot" onchange="setBase('pilot',this.value)"></div>
+    <div class="field"><label id="lblMP"></label><input type="date" id="inMP" onchange="setBase('mp',this.value)"></div>
+    <div class="progress-wrap">
+      <div class="progress-meta"><span id="progLbl"></span><span id="progNum"></span></div>
+      <div class="progress-bar"><div class="progress-fill" id="progFill" style="width:0%"></div></div>
+    </div>
+  </div>
+</div>
+
+<div class="stats" id="statsRow"></div>
+
+<div class="panel" id="tlPanel">
+  <div class="panel-label" id="plTimeline"></div>
+  <div id="timelineBody"></div>
+</div>
+
+<div class="panel">
+  <div class="panel-label" id="plMilestones"></div>
+  <div id="groupsBody"></div>
+</div>
+
+<div class="panel">
+  <div class="panel-label" id="plReview"></div>
+  <div class="review-grid" id="reviewBody"></div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* ============ i18n ============ */
+const I18N = {
+  cn:{
+    title:'GTM 里程碑 Dashboard', sub:'输入 Pilot Run / Mass Production，自动推演全部关键节点，支持手动锁定建议日期',
+    setup:'基准设置', project:'项目', newBtn:'新建', delBtn:'删除', renameBtn:'重命名', renamePrompt:'项目名称',
+    exportBtn:'导出备份', importBtn:'导入备份', exported:'已导出备份文件 ✓', imported:'已导入 ✓', importBad:'文件格式无效，未导入', importConfirm:'导入将合并到现有项目（同 ID 项目会被覆盖），继续？',
+    pilot:'Pilot Run 日期', mp:'Mass Production 日期', progress:'整体进度',
+    statTotal:'关键节点', statDone:'已完成', statOverdue:'已逾期', statSoon:'7 天内到期',
+    timeline:'时间轴总览', milestones:'关键节点明细', review:'周会 Review',
+    colOverdue:'已逾期', colSoon:'未来 7 天', colMid:'未来 8–21 天', none:'暂无',
+    ns:'未开始', ip:'进行中', done:'已完成',
+    ownerPh:'负责人', notePh:'备注',
+    locked:'已手动锁定', restore:'恢复建议值', reminder:'提醒', rule:'规则',
+    copy:'复制周会汇报', copied:'已复制到剪贴板 ✓', confirmDel:'确定删除该项目及其所有进度记录？',
+    needDates:'请先填写 Pilot Run 与 Mass Production 日期',
+    today:'今天', newProjName:'新项目',
+    phases:{media:'T0 媒体 PR', web:'官网与 Embargo', region:'区域铺货与开售', kol:'KOL PR'},
+    statusMap:{ns:'未开始', ip:'进行中', done:'已完成'},
+    reportPhases:{media:'【T0 媒体 PR】', web:'【官网与 Embargo】', region:'【区域铺货与开售】', kol:'【KOL PR】', remind:'【提醒事项】'},
+    fmt:(d)=>{const wd='日一二三四五六'[d.getDay()];return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')+' 周'+wd;},
+    m:{
+      mediaGuide:{t:'Media Guide 完成日', d:'NPI 团队完成 Media Guide 终版'},
+      prKickoff:{t:'T0 媒体 PR 启动日', d:'确认 T0 媒体名单、完成 Brief，启动媒体沟通'},
+      pilotSample:{t:'寄样提醒：T0 媒体（空运）', d:'Pilot Run 当天起可向 T0 媒体寄送样品（空运）'},
+      sampleRcv:{t:'T0 媒体样品到达日', d:'样品空运到达 T0 媒体，媒体可开始 Embargo 期 Review 创作'},
+      contentReady:{t:'T0 媒体内容完成日', d:'T0 媒体完成新品 Review 内容'},
+      embargo:{t:'Global Embargo Day（官网释出日）', d:'官网产品页正式上架；此日解除 Embargo。建议日期，可手动修改'},
+      officialSite:{t:'官网释出日', d:'与 Global Embargo 同日，官网产品页正式上架'},
+      warmup:{t:'Official Warm up Day', d:'官网社媒开始 Warmup'},
+      warmupAssets:{t:'Warm up 物料完成日', d:'NPI 完成 Warmup 阶段 Poster 与 Video 物料'},
+      arrivalNA:{t:'区域到货日（NA/APAC）', d:'MP 大货到达区域仓库，理论上可 On-shelf 开售'},
+      arrivalEMEA:{t:'区域到货日（EMEA/LATAM）', d:'MP 大货到达区域仓库，理论上可 On-shelf 开售'},
+      onshelfNA:{t:'On-shelf Day（NA/APAC）', d:'到货后下一个周一开售。建议日期，可手动修改'},
+      onshelfEMEA:{t:'On-shelf Day（EMEA/LATAM）', d:'到货后下一个周一开售。建议日期，可手动修改'},
+      ecomReady:{t:'电商页面完成日', d:'NPI 完成 Amazon A+ 等电商页面制作终版'},
+      kolKickoff:{t:'KOL PR 启动日', d:'确认 KOL 名单、完成 Brief，启动 KOL 沟通'},
+      kolSample:{t:'寄样提醒：KOL', d:'NA/APAC 到货日起可向 KOL 寄送样品'}
+    }
+  },
+  en:{
+    title:'GTM Milestone Dashboard', sub:'Enter Pilot Run / Mass Production dates — all milestones auto-derived. Suggested dates are manually lockable.',
+    setup:'Baseline Setup', project:'Project', newBtn:'New', delBtn:'Delete', renameBtn:'Rename', renamePrompt:'Project name',
+    exportBtn:'Export Backup', importBtn:'Import Backup', exported:'Backup file exported ✓', imported:'Imported ✓', importBad:'Invalid file — nothing imported', importConfirm:'Import merges into your existing projects (same-ID projects are overwritten). Continue?',
+    pilot:'Pilot Run Date', mp:'Mass Production Date', progress:'Overall Progress',
+    statTotal:'Milestones', statDone:'Done', statOverdue:'Overdue', statSoon:'Due in 7 Days',
+    timeline:'Timeline Overview', milestones:'Milestone Details', review:'Weekly Review',
+    colOverdue:'Overdue', colSoon:'Next 7 Days', colMid:'Next 8–21 Days', none:'Nothing here',
+    ns:'Not Started', ip:'In Progress', done:'Done',
+    ownerPh:'Owner', notePh:'Note',
+    locked:'Manually Locked', restore:'Restore suggested', reminder:'Reminder', rule:'Rule',
+    copy:'Copy Weekly Report', copied:'Copied to clipboard ✓', confirmDel:'Delete this project and all its progress records?',
+    needDates:'Please fill in Pilot Run and Mass Production dates first',
+    today:'Today', newProjName:'New Project',
+    phases:{media:'T0 Media PR', web:'Website & Embargo', region:'Regional Rollout & On-shelf', kol:'KOL PR'},
+    statusMap:{ns:'Not Started', ip:'In Progress', done:'Done'},
+    reportPhases:{media:'[T0 Media PR]', web:'[Website & Embargo]', region:'[Regional Rollout & On-shelf]', kol:'[KOL PR]', remind:'[Reminders]'},
+    fmt:(d)=>{const M=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];const W=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];return M[d.getMonth()]+' '+d.getDate()+', '+d.getFullYear()+' ('+W[d.getDay()]+')';},
+    m:{
+      mediaGuide:{t:'Media Guide Ready Day', d:'NPI team finalizes the Media Guide'},
+      prKickoff:{t:'T0 Media PR Kickoff', d:'Confirm T0 media list, complete brief, start media outreach'},
+      pilotSample:{t:'Sample Reminder: T0 Media (Air)', d:'From Pilot Run day, air-ship samples to T0 media'},
+      sampleRcv:{t:'T0 Media Sample Receive Day', d:'Samples arrive at T0 media — embargo review work can begin'},
+      contentReady:{t:'T0 Media Content Ready Day', d:'T0 media complete new-product review content'},
+      embargo:{t:'Global Embargo Day (Website Release)', d:'Official product pages go live; embargo lifts. Suggested date, manually adjustable'},
+      officialSite:{t:'Website Release Day', d:'Same day as Global Embargo — official product pages go live'},
+      warmup:{t:'Official Warm-up Day', d:'Official social media starts warm-up'},
+      warmupAssets:{t:'Warm-up Assets Ready Day', d:'NPI completes warm-up posters and videos'},
+      arrivalNA:{t:'Regional MP Arrival (NA/APAC)', d:'MP units arrive at regional warehouses — on-shelf becomes possible'},
+      arrivalEMEA:{t:'Regional MP Arrival (EMEA/LATAM)', d:'MP units arrive at regional warehouses — on-shelf becomes possible'},
+      onshelfNA:{t:'On-shelf Day (NA/APAC)', d:'First Monday after arrival. Suggested date, manually adjustable'},
+      onshelfEMEA:{t:'On-shelf Day (EMEA/LATAM)', d:'First Monday after arrival. Suggested date, manually adjustable'},
+      ecomReady:{t:'E-commerce Page Ready', d:'NPI finalizes Amazon A+ and other e-commerce pages'},
+      kolKickoff:{t:'KOL PR Kickoff', d:'Confirm KOL list, complete brief, start KOL outreach'},
+      kolSample:{t:'Sample Reminder: KOLs', d:'From NA/APAC arrival day, ship samples to KOLs'}
+    }
+  }
+};
+
+/* ============ milestone definitions ============ */
+const DEFS=[
+  {key:'mediaGuide',   phase:'media',  badge:'P-21',        calc:(p,mp)=>addD(p,-21)},
+  {key:'prKickoff',    phase:'media',  badge:'P-14',        calc:(p,mp)=>addD(p,-14)},
+  {key:'pilotSample',  phase:'media',  badge:'Pilot Run',   calc:(p,mp)=>p, reminder:true},
+  {key:'sampleRcv',    phase:'media',  badge:'P+10',        calc:(p,mp)=>addD(p,10)},
+  {key:'contentReady', phase:'media',  badge:'P+38',        calc:(p,mp)=>addD(p,38)},
+  {key:'embargo',      phase:'web',    badge:'CR+1st Mon',  calc:(p,mp,e)=>e.embargo, lockable:true},
+  {key:'warmupAssets', phase:'web',    badge:'E-14',        calc:(p,mp,e)=>addD(e.embargo,-14)},
+  {key:'warmup',       phase:'web',    badge:'E-7',         calc:(p,mp,e)=>addD(e.embargo,-7)},
+  {key:'officialSite', phase:'web',    badge:'= Embargo',   calc:(p,mp,e)=>e.embargo},
+  {key:'arrivalNA',    phase:'region', badge:'MP+30',       calc:(p,mp)=>addD(mp,30)},
+  {key:'arrivalEMEA',  phase:'region', badge:'MP+60',       calc:(p,mp)=>addD(mp,60)},
+  {key:'onshelfNA',    phase:'region', badge:'Arr+1st Mon', calc:(p,mp,e)=>e.onshelfNA, lockable:true},
+  {key:'ecomReady',    phase:'region', badge:'OS-10',       calc:(p,mp,e)=>addD(e.onshelfNA,-10)},
+  {key:'onshelfEMEA',  phase:'region', badge:'Arr+1st Mon', calc:(p,mp,e)=>e.onshelfEMEA, lockable:true},
+  {key:'kolKickoff',   phase:'kol',    badge:'Arr-14',      calc:(p,mp)=>addD(addD(mp,30),-14)},
+  {key:'kolSample',    phase:'kol',    badge:'Arrival',     calc:(p,mp)=>addD(mp,30), reminder:true}
+];
+
+/* ============ date helpers ============ */
+function pd(s){const[a,b,c]=s.split('-').map(Number);return new Date(a,b-1,c);}
+function addD(d,n){const x=new Date(d);x.setDate(x.getDate()+n);return x;}
+function nextMonday(d){const x=new Date(d);const add=((8-x.getDay())%7)||7;return addD(x,add);}
+function dstr(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
+function today0(){const t=new Date();return new Date(t.getFullYear(),t.getMonth(),t.getDate());}
+function daysFromToday(d){return Math.round((d-today0())/86400000);}
+
+/* ============ state ============ */
+const LS_KEY='tryx_gtm_dashboard_v2';
+let state={lang:'cn', active:null, projects:{}};
+
+function load(){
+  try{
+    const raw=localStorage.getItem(LS_KEY);
+    if(raw){state=Object.assign(state,JSON.parse(raw));return;}
+  }catch(e){}
+  // best-effort migration from old single-language boards
+  for(const old of ['tryx_gtm_board_v1','tryx_gtm_board_en_v1']){
+    try{
+      const raw=localStorage.getItem(old);
+      if(!raw)continue;
+      const o=JSON.parse(raw);
+      const projs=o.projects||o; // accept either shape
+      for(const id in projs){
+        const p=projs[id];
+        const np={name:p.name||id, pilot:p.pilot||p.pilotRun||'', mp:p.mp||p.massProduction||'', ms:{}};
+        const src=p.milestones||p.ms||{};
+        for(const k in src){const s=src[k];np.ms[k]={status:s.status||'ns',owner:s.owner||'',note:s.note||'',lockedDate:s.lockedDate||s.locked||''};}
+        state.projects['mig_'+id]=np;
+      }
+      if(Object.keys(state.projects).length){state.active=Object.keys(state.projects)[0];break;}
+    }catch(e){}
+  }
+  save();
+}
+function save(){try{localStorage.setItem(LS_KEY,JSON.stringify(state));}catch(e){}}
+function T(){return I18N[state.lang];}
+
+/* ============ computed milestones ============ */
+function getMilestones(){
+  const p=state.projects[state.active];
+  if(!p||!p.pilot||!p.mp)return [];
+  const pilot=pd(p.pilot), mp=pd(p.mp);
+  const eff={
+    embargo: p.ms.embargo&&p.ms.embargo.lockedDate ? pd(p.ms.embargo.lockedDate) : nextMonday(addD(pilot,38)),
+    onshelfNA: p.ms.onshelfNA&&p.ms.onshelfNA.lockedDate ? pd(p.ms.onshelfNA.lockedDate) : nextMonday(addD(mp,30)),
+    onshelfEMEA: p.ms.onshelfEMEA&&p.ms.onshelfEMEA.lockedDate ? pd(p.ms.onshelfEMEA.lockedDate) : nextMonday(addD(mp,60))
+  };
+  return DEFS.map(d=>({key:d.key,phase:d.phase,badge:d.badge,reminder:!!d.reminder,lockable:!!d.lockable,date:d.calc(pilot,mp,eff)}));
+}
+function cardStatus(m){
+  const p=state.projects[state.active];
+  if(m.reminder)return 'reminder';
+  const st=(p.ms[m.key]||{}).status||'ns';
+  if(st==='done')return 'done';
+  const d=daysFromToday(m.date);
+  if(d<0)return 'overdue';
+  if(d<=7)return 'soon';
+  return 'normal';
+}
+
+/* ============ render ============ */
+function render(){
+  const t=T(), p=state.projects[state.active];
+  document.documentElement.lang = state.lang==='cn'?'zh-CN':'en';
+  document.title=t.title;
+  document.getElementById('hTitle').textContent=t.title;
+  document.getElementById('hSub').textContent=t.sub;
+  document.getElementById('langCn').classList.toggle('on',state.lang==='cn');
+  document.getElementById('langEn').classList.toggle('on',state.lang==='en');
+  document.getElementById('btnCopy').textContent=t.copy;
+  document.getElementById('plSetup').textContent=t.setup;
+  document.getElementById('lblProject').textContent=t.project;
+  document.getElementById('btnNew').textContent=t.newBtn;
+  document.getElementById('btnDel').textContent=t.delBtn;
+  document.getElementById('btnRename').textContent=t.renameBtn;
+  document.getElementById('btnExport').textContent=t.exportBtn;
+  document.getElementById('btnImport').textContent=t.importBtn;
+  document.getElementById('lblPilot').textContent=t.pilot;
+  document.getElementById('lblMP').textContent=t.mp;
+  document.getElementById('progLbl').textContent=t.progress;
+  document.getElementById('plTimeline').textContent=t.timeline;
+  document.getElementById('plMilestones').textContent=t.milestones;
+  document.getElementById('plReview').textContent=t.review;
+
+  // project selector
+  const sel=document.getElementById('projSelect');
+  sel.innerHTML=Object.keys(state.projects).map(id=>'<option value="'+id+'"'+(id===state.active?' selected':'')+'>'+esc(state.projects[id].name)+'</option>').join('');
+  if(p){
+    document.getElementById('inPilot').value=p.pilot||'';
+    document.getElementById('inMP').value=p.mp||'';
+  }else{
+    document.getElementById('inPilot').value='';document.getElementById('inMP').value='';
+  }
+
+  const ms=getMilestones();
+  const real=ms.filter(m=>!m.reminder);
+  const done=real.filter(m=>((p&&p.ms[m.key]||{}).status)==='done').length;
+  const overdue=real.filter(m=>cardStatus(m)==='overdue').length;
+  const soon=real.filter(m=>cardStatus(m)==='soon').length;
+
+  document.getElementById('progNum').textContent=real.length?done+'/'+real.length:'—';
+  document.getElementById('progFill').style.width=(real.length?Math.round(done/real.length*100):0)+'%';
+
+  document.getElementById('statsRow').innerHTML=[
+    ['total',real.length,t.statTotal],['done',done,t.statDone],
+    ['overdue',overdue,t.statOverdue],['soon',soon,t.statSoon]
+  ].map(s=>'<div class="stat '+s[0]+'"><div class="num">'+s[1]+'</div><div class="lbl">'+s[2]+'</div></div>').join('');
+
+  renderTimeline(ms,t);
+  renderGroups(ms,t);
+  renderReview(ms,t);
+}
+
+function renderTimeline(ms,t){
+  const body=document.getElementById('timelineBody');
+  if(ms.length<2){body.innerHTML='<div class="empty-hint">'+T().needDates+'</div>';return;}
+  const dates=ms.map(m=>m.date.getTime());
+  const min=Math.min(...dates), max=Math.max(...dates);
+  const span=(max-min)||1;
+  const phases=['media','web','region','kol'];
+  let html='';
+  phases.forEach(ph=>{
+    const items=ms.filter(m=>m.phase===ph);
+    const dots=items.map(m=>{
+      const pos=10+((m.date.getTime()-min)/span)*80;
+      const cs=m.reminder?'s-reminder':'s-'+cardStatus(m);
+      return '<div class="dot '+cs+'" style="left:'+pos+'%" title="'+esc(t.fmt(m.date))+' · '+esc((t.m[m.key]||{t:m.key}).t)+'"></div>';
+    }).join('');
+    html+='<div class="lane"><div class="lane-name">'+t.phases[ph]+'</div><div class="lane-track"><div class="lane-line"></div>'+dots+'</div></div>';
+  });
+  html+='<div class="tl-range"><span>'+t.fmt(new Date(min))+'</span><span>'+t.fmt(new Date(max))+'</span></div>';
+  body.innerHTML=html;
+}
+
+function renderGroups(ms,t){
+  const p=state.projects[state.active];
+  const body=document.getElementById('groupsBody');
+  if(!ms.length){body.innerHTML='<div class="empty-hint">'+t.needDates+'</div>';return;}
+  const phases=['media','web','region','kol'];
+  let html='';
+  phases.forEach(ph=>{
+    const items=ms.filter(m=>m.phase===ph);
+    if(!items.length)return;
+    const doneN=items.filter(m=>!m.reminder&&((p.ms[m.key]||{}).status)==='done').length;
+    const realN=items.filter(m=>!m.reminder).length;
+    html+='<div class="group"><div class="group-head"><span class="group-tag '+ph+'">'+t.phases[ph]+'</span><span class="group-count">'+(realN?doneN+'/'+realN+' '+t.done:'')+'</span></div><div class="cards">';
+    items.forEach(m=>html+=cardHTML(m,t,p));
+    html+='</div></div>';
+  });
+  body.innerHTML=html;
+}
+
+function cardHTML(m,t,p){
+  const rec=p.ms[m.key]||{};
+  const cs=cardStatus(m);
+  const d=daysFromToday(m.date);
+  const ddl=cs==='reminder'?'':(d===0?t.today:(d>0?'D-'+d:'D+'+Math.abs(d)));
+  const dateTxt=t.fmt(m.date);
+  const st=rec.status||'ns';
+  let badges='<span class="badge rule">'+m.badge+'</span>';
+  if(m.lockable){
+    if(rec.lockedDate){badges+='<span class="badge locked">'+t.locked+'</span><button class="link-btn" onclick="unlock(\''+m.key+'\')">'+t.restore+'</button>';}
+    else{badges+='<span class="badge">'+(state.lang==='cn'?'建议日期可锁定':'Suggested, lockable')+'</span>';}
+    badges+='<input type="date" value="'+(rec.lockedDate||dstr(m.date))+'" onchange="lockDate(\''+m.key+'\',this.value)" style="border:1px solid var(--line);border-radius:7px;padding:4px 7px;font-size:12px;width:140px;">';
+  }
+  let ctrl='';
+  if(!m.reminder){
+    ctrl='<div class="seg">'
+      +'<button class="'+(st==='ns'?'on-ns':'')+'" onclick="setStatus(\''+m.key+'\',\'ns\')">'+t.ns+'</button>'
+      +'<button class="'+(st==='ip'?'on-ip':'')+'" onclick="setStatus(\''+m.key+'\',\'ip\')">'+t.ip+'</button>'
+      +'<button class="'+(st==='done'?'on-done':'')+'" onclick="setStatus(\''+m.key+'\',\'done\')">'+t.done+'</button>'
+      +'</div>'
+      +'<div class="ctrl-row">'
+      +'<input placeholder="'+t.ownerPh+'" value="'+esc(rec.owner||'')+'" onchange="setField(\''+m.key+'\',\'owner\',this.value)">'
+      +'<input placeholder="'+t.notePh+'" value="'+esc(rec.note||'')+'" onchange="setField(\''+m.key+'\',\'note\',this.value)">'
+      +'</div>';
+  }
+  return '<div class="card '+(m.reminder?'reminder-card':cs)+'">'
+    +'<div class="date-row"><span class="m-date">'+dateTxt+'</span><span class="m-ddl">'+ddl+'</span></div>'
+    +'<div class="m-title">'+(t.m[m.key]||{t:m.key}).t+'</div>'
+    +'<div class="m-desc">'+((t.m[m.key]||{d:''}).d)+'</div>'
+    +'<div class="badge-row">'+bades_fix(badges,m,t)+'</div>'
+    +ctrl
+    +'</div>';
+}
+function bades_fix(b,m,t){return m.reminder?'<span class="badge remind-b">'+t.reminder+'</span>':b;}
+
+function renderReview(ms,t){
+  const p=state.projects[state.active];
+  const real=ms.filter(m=>!m.reminder);
+  const buckets={overdue:[],soon:[],mid:[]};
+  real.forEach(m=>{
+    const d=daysFromToday(m.date);
+    const st=(p.ms[m.key]||{}).status||'ns';
+    if(st==='done')return;
+    if(d<0)buckets.overdue.push(m);
+    else if(d<=7)buckets.soon.push(m);
+    else if(d<=21)buckets.mid.push(m);
+  });
+  buckets.overdue.sort((a,b)=>a.date-b.date);
+  buckets.soon.sort((a,b)=>a.date-b.date);
+  buckets.mid.sort((a,b)=>a.date-b.date);
+  const item=m=>{
+    const st=(p.ms[m.key]||{}).status||'ns';
+    const owner=(p.ms[m.key]||{}).owner||'';
+    const d=daysFromToday(m.date);
+    return '<div class="rc-item"><b>'+t.fmt(m.date)+'</b> · '+esc((t.m[m.key]||{t:m.key}).t)
+      +(owner?' · '+esc(owner):'')+' <span style="color:'+(d<0?'var(--red)':'var(--ink-3)')+'">('+(d<0?'D+'+Math.abs(d):'D-'+d)+', '+t.statusMap[st]+')</span></div>';
+  };
+  const col=(cls,label,arr)=>'<div class="review-col '+cls+'"><div class="rc-head">'+label+' ('+arr.length+')</div><div class="rc-body">'
+    +(arr.length?arr.map(item).join(''):'<div class="empty-hint">'+t.none+'</div>')+'</div></div>';
+  document.getElementById('reviewBody').innerHTML=
+    col('overdue-c',t.colOverdue,buckets.overdue)+col('soon-c',t.colSoon,buckets.soon)+col('mid-c',t.colMid,buckets.mid);
+}
+
+/* ============ actions ============ */
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function setLang(l){state.lang=l;save();render();}
+function switchProject(id){state.active=id;save();render();}
+function setBase(k,v){const p=state.projects[state.active];if(!p)return;p[k]=v;save();render();}
+function setStatus(key,st){const p=state.projects[state.active];if(!p)return;if(!p.ms[key])p.ms[key]={};p.ms[key].status=st;save();render();}
+function setField(key,f,v){const p=state.projects[state.active];if(!p)return;if(!p.ms[key])p.ms[key]={};p.ms[key][f]=v;save();}
+function lockDate(key,v){const p=state.projects[state.active];if(!p||!v)return;if(!p.ms[key])p.ms[key]={};p.ms[key].lockedDate=v;save();render();}
+function unlock(key){const p=state.projects[state.active];if(!p||!p.ms[key])return;delete p.ms[key].lockedDate;save();render();}
+function newProject(){
+  const t=T();let i=1,name=t.newProjName;
+  while(Object.values(state.projects).some(p=>p.name===name)){name=t.newProjName+' '+i;i++;}
+  const id='p'+Date.now();
+  state.projects[id]={name,pilot:'',mp:'',ms:{}};
+  state.active=id;save();render();
+  document.getElementById('inPilot').focus();
+}
+function deleteProject(){
+  const t=T();
+  if(!state.active||!state.projects[state.active])return;
+  if(!confirm(t.confirmDel))return;
+  delete state.projects[state.active];
+  state.active=Object.keys(state.projects)[0]||null;
+  if(!state.active)newProjectSilent();
+  save();render();
+}
+function renameProject(){
+  const p=state.projects[state.active];if(!p)return;
+  const n=prompt(T().renamePrompt,p.name);
+  if(n===null)return;const v=n.trim();if(!v)return;
+  p.name=v;save();render();
+}
+function exportData(){
+  const data=JSON.stringify({app:'gtm-milestone-dashboard',version:2,exported:new Date().toISOString(),projects:state.projects,active:state.active},null,2);
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob([data],{type:'application/json'}));
+  a.download='gtm-dashboard-backup-'+dstr(today0())+'.json';
+  document.body.appendChild(a);a.click();a.remove();
+  setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+  toast(T().exported);
+}
+function importData(input){
+  const t=T(),f=input.files&&input.files[0];input.value='';
+  if(!f)return;
+  const rd=new FileReader();
+  rd.onload=()=>{
+    let o;try{o=JSON.parse(rd.result);}catch(e){toast(t.importBad);return;}
+    const projs=o&&o.projects;
+    if(!projs||typeof projs!=='object'||Array.isArray(projs)){toast(t.importBad);return;}
+    const clean={};
+    for(const id in projs){
+      const p=projs[id];if(!p||typeof p!=='object')continue;
+      const ms={};
+      for(const k in (p.ms||{})){const s=p.ms[k]||{};ms[k]={status:['ns','ip','done'].includes(s.status)?s.status:'ns',owner:String(s.owner||''),note:String(s.note||'')};if(/^\d{4}-\d{2}-\d{2}$/.test(s.lockedDate||''))ms[k].lockedDate=s.lockedDate;}
+      const dt=v=>/^\d{4}-\d{2}-\d{2}$/.test(v||'')?v:'';
+      clean[id]={name:String(p.name||id),pilot:dt(p.pilot),mp:dt(p.mp),ms};
+    }
+    if(!Object.keys(clean).length){toast(t.importBad);return;}
+    if(!confirm(t.importConfirm))return;
+    Object.assign(state.projects,clean);
+    state.active=(o.active&&clean[o.active])?o.active:Object.keys(clean)[0];
+    save();render();toast(t.imported);
+  };
+  rd.readAsText(f);
+}
+function newProjectSilent(){const id='p'+Date.now();state.projects[id]={name:T().newProjName,pilot:'',mp:'',ms:{}};state.active=id;}
+function toast(msg){const el=document.getElementById('toast');el.textContent=msg;el.classList.add('show');setTimeout(()=>el.classList.remove('show'),1800);}
+
+function copyReport(){
+  const t=T(),p=state.projects[state.active];
+  const ms=getMilestones();
+  if(!ms.length){toast(t.needDates);return;}
+  const lines=[];
+  lines.push('=== '+t.title+' : '+(p?p.name:'')+' ===');
+  if(p&&p.pilot)lines.push('Pilot Run: '+p.pilot+(p.mp?'  |  Mass Production: '+p.mp:''));
+  lines.push('');
+  ['media','web','region','kol'].forEach(ph=>{
+    const items=ms.filter(m=>m.phase===ph);
+    if(!items.length)return;
+    lines.push(t.reportPhases[ph]);
+    items.forEach(m=>{
+      const rec=(p.ms[m.key])||{};
+      const d=daysFromToday(m.date);
+      const ddl=m.reminder?'':(d===0?' ['+t.today+']':d>0?' [D-'+d+']':' [D+'+Math.abs(d)+']');
+      const st=m.reminder?'':' | '+t.statusMap[rec.status||'ns']+(rec.owner?' | '+rec.owner:'')+(rec.note?' | '+rec.note:'');
+      lines.push(t.fmt(m.date)+ddl+'  '+(t.m[m.key]||{t:m.key}).t+st);
+    });
+    lines.push('');
+  });
+  const text=lines.join('\n');
+  if(navigator.clipboard&&navigator.clipboard.writeText){
+    navigator.clipboard.writeText(text).then(()=>toast(t.copied),()=>fallbackCopy(text,t));
+  }else fallbackCopy(text,t);
+}
+function fallbackCopy(text,t){
+  const ta=document.createElement('textarea');ta.value=text;document.body.appendChild(ta);ta.select();
+  try{document.execCommand('copy');toast(t.copied);}catch(e){}
+  document.body.removeChild(ta);
+}
+
+/* ============ init ============ */
+load();
+if(!state.active||!state.projects[state.active]){
+  const t=T();const id='p'+Date.now();
+  state.projects[id]={name:t.newProjName,pilot:'',mp:'',ms:{}};state.active=id;save();
+}
+render();
+</script>
+</body>
+</html>
