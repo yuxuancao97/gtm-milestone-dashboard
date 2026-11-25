@@ -4,10 +4,10 @@ Bilingual (CN/EN) GTM milestone tracker. Enter Pilot Run and Mass Production dat
 
 Data is saved in your browser (localStorage). Use **Export Backup** / **Import Backup** to move it between browsers or share it.
 
-## Shared board (Supabase)
+## Shared board (Google Sheet)
 
-1. Create a free project at supabase.com.
-2. In the project, open **SQL Editor → New query**, paste `supabase-setup.sql`, and click **Run**.
-3. Copy the **Project URL** and the **anon public** key from **Project Settings → API** into `SUPABASE_URL` and `SUPABASE_ANON_KEY` near the top of the script in `index.html`.
+1. Create a blank Google Sheet, open **Extensions → Apps Script**, paste `google-apps-script.js`, and save.
+2. **Deploy → New deployment → Web app**, with *Execute as: Me* and *Who has access: Anyone*. Copy the web app URL.
+3. Paste that URL into `SHEETS_URL` near the top of the script in `index.html`.
 
-Without those two values the dashboard saves data in each browser only.
+Without it, the dashboard saves data in each browser only.

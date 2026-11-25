@@ -195,7 +195,6 @@
 
 <div class="toast" id="toast"></div>
 
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
 <script>
 /* ============ i18n ============ */
 const I18N = {
@@ -304,10 +303,10 @@ function today0(){const t=new Date();return new Date(t.getFullYear(),t.getMonth(
 function daysFromToday(d){return Math.round((d-today0())/86400000);}
 
 /* ============ config ============ */
-// Fill these two values from Supabase > Project Settings > API to turn on the shared board.
-// Leave them empty and the dashboard keeps data in each person's browser only.
-const SUPABASE_URL='';
-const SUPABASE_ANON_KEY='';
+// Paste the Google Apps Script web app URL (ends in /exec) to turn on the shared board.
+// Leave it empty and the dashboard keeps data in each person's browser only.
+const SHEETS_URL='';
+const POLL_MS=12000;
 
 /* ============ state ============ */
 const LS_KEY='tryx_gtm_dashboard_v2', PREF_KEY='gtm_dashboard_prefs_v1';
@@ -347,45 +346,51 @@ function save(){
 function T(){return I18N[state.lang];}
 function ensureActive(){if(!state.projects[state.active])state.active=Object.keys(state.projects).sort((a,b)=>(state.projects[a].created||0)-(state.projects[b].created||0))[0]||null;}
 
-/* ============ shared store (Supabase) ============ */
+/* ============ shared store (Google Sheet) ============ */
 const shared=()=>mode!=='local';
-function fromRow(r){return {name:r.name||'',pilot:r.pilot||'',mp:r.mp||'',created:Date.parse(r.created_at)||0,ms:{}};}
-function msFromRow(r){return {status:r.status||'ns',owner:r.owner||'',note:r.note||'',lockedDate:r.locked_date||''};}
-async function fetchAll(){
-  const [a,b]=await Promise.all([sb.from('projects').select('*'),sb.from('milestones').select('*')]);
-  if(a.error)throw a.error; if(b.error)throw b.error;
-  const projects={};
-  a.data.forEach(r=>projects[r.id]=fromRow(r));
-  b.data.forEach(r=>{if(projects[r.project_id])projects[r.project_id].ms[r.key]=msFromRow(r);});
-  state.projects=projects;ensureActive();
+let rev=null, queue=[], busy=false;
+const DATE_OK=/^\d{4}-\d{2}-\d{2}$/;
+function normalizeAll(src){
+  const out={};
+  for(const id in (src||{})){
+    const p=src[id]||{};const ms={};
+    for(const k in (p.ms||{})){const m=p.ms[k]||{};ms[k]={status:['ns','ip','done'].includes(m.status)?m.status:'ns',owner:String(m.owner||''),note:String(m.note||''),lockedDate:DATE_OK.test(m.lockedDate||'')?m.lockedDate:''};}
+    out[id]={name:String(p.name||''),pilot:DATE_OK.test(p.pilot||'')?p.pilot:'',mp:DATE_OK.test(p.mp||'')?p.mp:'',created:Number(p.created)||0,ms};
+  }
+  return out;
 }
-function onProjectChange(ev){
-  if(ev.eventType==='DELETE'){delete state.projects[(ev.old||{}).id];ensureActive();}
-  else{const r=ev.new;const ms=(state.projects[r.id]||{}).ms||{};state.projects[r.id]=Object.assign(fromRow(r),{ms});ensureActive();}
-  render();
+async function api(body){
+  const url=body?SHEETS_URL:SHEETS_URL+'?action=get&since='+(rev==null?'':rev)+'&t='+Date.now();
+  const res=await fetch(url,body?{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify(body)}:{});
+  if(!res.ok)throw new Error('HTTP '+res.status);
+  return res.json();
 }
-function onMilestoneChange(ev){
-  if(ev.eventType==='DELETE'){const r=ev.old||{};const p=state.projects[r.project_id];if(p)delete p.ms[r.key];}
-  else{const r=ev.new;const p=state.projects[r.project_id];if(p)p.ms[r.key]=msFromRow(r);}
-  render();
+function applyRemote(j){if(!j||j.unchanged||!j.projects)return false;rev=j.rev;state.projects=normalizeAll(j.projects);ensureActive();return true;}
+function send(op){if(!shared())return;queue.push(op);flush();}
+async function flush(){
+  if(busy||!queue.length)return;
+  busy=true;const ops=queue.splice(0);
+  try{
+    const j=await api({ops});
+    if(j.error&&j.retry){queue.unshift(...ops);setMode('offline');}
+    else if(j.error){toast((state.lang==='cn'?'保存失败：':'Not saved: ')+j.error);rev=null;await poll(true);}
+    else{setMode('live');if(!queue.length){applyRemote(j);render();}}
+  }catch(e){queue.unshift(...ops);setMode('offline');}
+  busy=false;
+  if(queue.length&&mode==='live')flush();
 }
-function setMode(m){mode=m;renderStatus();}
-function writeErr(res){
-  if(res&&res.error){toast((state.lang==='cn'?'保存失败：':'Not saved: ')+res.error.message);fetchAll().then(()=>render(true)).catch(()=>{});}
+async function poll(force){
+  if(!shared()||(!force&&(busy||queue.length||document.hidden)))return;
+  try{const j=await api();setMode('live');if(applyRemote(j))render();}
+  catch(e){setMode('offline');}
 }
-function remote(fn){if(!shared())return;Promise.resolve().then(fn).then(writeErr,e=>writeErr({error:e}));}
+function setMode(m){if(mode!==m){mode=m;renderStatus();}}
 async function connect(){
-  if(!SUPABASE_URL||!SUPABASE_ANON_KEY||!window.supabase){loadLocal();return false;}
-  loadPrefs();setMode('connecting');
-  sb=window.supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY);
-  try{await fetchAll();setMode('live');}catch(e){setMode('offline');}
-  sb.channel('gtm-board')
-    .on('postgres_changes',{event:'*',schema:'public',table:'projects'},onProjectChange)
-    .on('postgres_changes',{event:'*',schema:'public',table:'milestones'},onMilestoneChange)
-    .subscribe(st=>{
-      if(st==='SUBSCRIBED'){fetchAll().then(()=>{setMode('live');render();}).catch(()=>setMode('offline'));}
-      else if(st==='CHANNEL_ERROR'||st==='TIMED_OUT'||st==='CLOSED')setMode('offline');
-    });
+  if(!SHEETS_URL){loadLocal();return false;}
+  loadPrefs();mode='connecting';renderStatus();
+  await poll(true);
+  setInterval(()=>{if(queue.length)flush();else poll();},POLL_MS);
+  document.addEventListener('visibilitychange',()=>{if(!document.hidden)poll();});
   return true;
 }
 
@@ -419,7 +424,7 @@ function renderStatus(){
   el.hidden=mode==='local';
   const cn=state.lang==='cn';
   el.className='sync '+mode;
-  el.lastChild.textContent=mode==='live'?(cn?'实时同步':'Live'):mode==='connecting'?(cn?'连接中…':'Connecting…'):(cn?'连接中断，修改可能未保存':'Offline: changes may not save');
+  el.lastChild.textContent=mode==='live'?(cn?'实时同步':'Live'):mode==='connecting'?(cn?'连接中…':'Connecting…'):(cn?'暂时连不上表格，修改会自动重试':"Can't reach the Sheet; changes will retry");
 }
 function render(force){
   if(!force&&editing()){pendingRender=true;return;}
@@ -582,25 +587,20 @@ function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').repl
 function setLang(l){state.lang=l;save();render(true);}
 function switchProject(id){state.active=id;save();render(true);}
 function setBase(k,v){const p=state.projects[state.active];if(!p)return;p[k]=v;save();render(true);
-  const id=state.active;remote(()=>sb.from('projects').update({[k]:v||null}).eq('id',id));}
-function msWrite(key,patch,col){
+  send({op:'updateProject',id:state.active,fields:{[k]:v}});}
+function msWrite(key,patch){
   const p=state.projects[state.active];if(!p)return null;
   if(!p.ms[key])p.ms[key]={};Object.assign(p.ms[key],patch);save();
-  const id=state.active;remote(()=>sb.from('milestones').upsert(Object.assign({project_id:id,key,updated_at:new Date().toISOString()},col),{onConflict:'project_id,key'}));
+  send({op:'setMilestone',id:state.active,key,fields:patch});
   return p;
 }
-function setStatus(key,st){if(msWrite(key,{status:st},{status:st}))render(true);}
-function setField(key,f,v){msWrite(key,{[f]:v},{[f]:v});}
-function lockDate(key,v){if(!v)return;if(msWrite(key,{lockedDate:v},{locked_date:v}))render(true);}
-function unlock(key){const p=state.projects[state.active];if(!p||!p.ms[key])return;msWrite(key,{lockedDate:''},{locked_date:null});render(true);}
+function setStatus(key,st){if(msWrite(key,{status:st}))render(true);}
+function setField(key,f,v){msWrite(key,{[f]:v});}
+function lockDate(key,v){if(!v)return;if(msWrite(key,{lockedDate:v}))render(true);}
+function unlock(key){const p=state.projects[state.active];if(!p||!p.ms[key])return;msWrite(key,{lockedDate:''});render(true);}
 function createProject(id,proj){
   state.projects[id]=proj;state.active=id;save();render(true);
-  remote(async()=>{
-    const r=await sb.from('projects').upsert({id,name:proj.name,pilot:proj.pilot||null,mp:proj.mp||null,created_at:new Date(proj.created||Date.now()).toISOString()});
-    if(r.error)return r;
-    const rows=Object.keys(proj.ms||{}).map(k=>{const m=proj.ms[k];return {project_id:id,key:k,status:m.status||'ns',owner:m.owner||'',note:m.note||'',locked_date:m.lockedDate||null};});
-    return rows.length?sb.from('milestones').upsert(rows,{onConflict:'project_id,key'}):r;
-  });
+  send({op:'createProject',id,data:proj});
 }
 function newProject(){
   const t=T();let i=1,name=t.newProjName;
@@ -617,7 +617,7 @@ function deleteProject(){
   ensureActive();
   if(!state.active&&!shared())newProjectSilent();
   save();render(true);
-  remote(()=>sb.from('projects').delete().eq('id',id));
+  send({op:'deleteProject',id});
 }
 function newProjectSilent(){const id='p'+Date.now();state.projects[id]={name:T().newProjName,pilot:'',mp:'',ms:{},created:Date.now()};state.active=id;}
 function toast(msg){const el=document.getElementById('toast');el.textContent=msg;el.classList.add('show');clearTimeout(toast._t);toast._t=setTimeout(()=>el.classList.remove('show'),2200);}
@@ -626,7 +626,7 @@ function renameProject(){
   const n=prompt(T().renamePrompt,p.name);
   if(n===null)return;const v=n.trim();if(!v)return;
   p.name=v;save();render(true);
-  const id=state.active;remote(()=>sb.from('projects').update({name:v}).eq('id',id));
+  send({op:'updateProject',id:state.active,fields:{name:v}});
 }
 function exportData(){
   const data=JSON.stringify({app:'gtm-milestone-dashboard',version:2,exported:new Date().toISOString(),projects:state.projects,active:state.active},null,2);
