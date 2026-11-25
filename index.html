@@ -306,7 +306,7 @@ function daysFromToday(d){return Math.round((d-today0())/86400000);}
 // Paste the Google Apps Script web app URL (ends in /exec) to turn on the shared board.
 // Leave it empty and the dashboard keeps data in each person's browser only.
 const SHEETS_URL='https://script.google.com/macros/s/AKfycbwBnGumSgcAuIcI4XFJ88Bzxng3l3nbb38jINDI4GD8U3mLoIDBc0Zmphh-TAfvY3MU9w/exec';
-const POLL_MS=12000;
+const POLL_MS=2000;   // how often an open page checks the Sheet for other people's changes
 
 /* ============ state ============ */
 const LS_KEY='tryx_gtm_dashboard_v2', PREF_KEY='gtm_dashboard_prefs_v1';
@@ -389,7 +389,8 @@ async function connect(){
   if(!SHEETS_URL){loadLocal();return false;}
   loadPrefs();mode='connecting';renderStatus();
   await poll(true);
-  setInterval(()=>{if(queue.length)flush();else poll();},POLL_MS);
+  const tick=async()=>{try{if(queue.length)await flush();else await poll();}finally{setTimeout(tick,POLL_MS);}};
+  setTimeout(tick,POLL_MS);
   document.addEventListener('visibilitychange',()=>{if(!document.hidden)poll();});
   return true;
 }
