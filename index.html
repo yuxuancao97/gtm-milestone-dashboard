@@ -123,6 +123,10 @@
   .empty-hint{color:var(--ink-3);font-size:13px;padding:8px 0;}
   .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;padding:10px 20px;border-radius:8px;font-size:13px;opacity:0;pointer-events:none;transition:opacity .3s;}
   .toast.show{opacity:.95;}
+  .sync{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:var(--ink-3);}
+  .sync i{width:8px;height:8px;border-radius:50%;background:var(--ink-3);}
+  .sync.live i{background:var(--green);box-shadow:0 0 0 3px var(--green-bg);}
+  .sync.offline{color:var(--red);} .sync.offline i{background:var(--red);}
   @media (max-width:860px){
     .stats{grid-template-columns:repeat(2,1fr);}
     .review-grid{grid-template-columns:1fr;}
@@ -139,6 +143,7 @@
     <div class="sub" id="hSub"></div>
   </div>
   <div class="header-actions">
+    <span class="sync" id="syncPill" hidden><i></i><span></span></span>
     <div class="lang-toggle">
       <button id="langCn" onclick="setLang('cn')">中文</button>
       <button id="langEn" onclick="setLang('en')">EN</button>
@@ -190,6 +195,7 @@
 
 <div class="toast" id="toast"></div>
 
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
 <script>
 /* ============ i18n ============ */
 const I18N = {
@@ -297,14 +303,21 @@ function dstr(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0
 function today0(){const t=new Date();return new Date(t.getFullYear(),t.getMonth(),t.getDate());}
 function daysFromToday(d){return Math.round((d-today0())/86400000);}
 
-/* ============ state ============ */
-const LS_KEY='tryx_gtm_dashboard_v2';
-let state={lang:'cn', active:null, projects:{}};
+/* ============ config ============ */
+// Fill these two values from Supabase > Project Settings > API to turn on the shared board.
+// Leave them empty and the dashboard keeps data in each person's browser only.
+const SUPABASE_URL='';
+const SUPABASE_ANON_KEY='';
 
-function load(){
+/* ============ state ============ */
+const LS_KEY='tryx_gtm_dashboard_v2', PREF_KEY='gtm_dashboard_prefs_v1';
+let state={lang:'cn', active:null, projects:{}};
+let sb=null, mode='local', pendingRender=false;   // mode: local | connecting | live | offline
+
+function loadLocal(){
   try{
     const raw=localStorage.getItem(LS_KEY);
-    if(raw){state=Object.assign(state,JSON.parse(raw));return;}
+    if(raw){const o=JSON.parse(raw);state.projects=o.projects||{};if(o.lang)state.lang=o.lang;if(o.active)state.active=o.active;return;}
   }catch(e){}
   // best-effort migration from old single-language boards
   for(const old of ['tryx_gtm_board_v1','tryx_gtm_board_en_v1']){
@@ -312,7 +325,7 @@ function load(){
       const raw=localStorage.getItem(old);
       if(!raw)continue;
       const o=JSON.parse(raw);
-      const projs=o.projects||o; // accept either shape
+      const projs=o.projects||o;
       for(const id in projs){
         const p=projs[id];
         const np={name:p.name||id, pilot:p.pilot||p.pilotRun||'', mp:p.mp||p.massProduction||'', ms:{}};
@@ -323,10 +336,58 @@ function load(){
       if(Object.keys(state.projects).length){state.active=Object.keys(state.projects)[0];break;}
     }catch(e){}
   }
-  save();
 }
-function save(){try{localStorage.setItem(LS_KEY,JSON.stringify(state));}catch(e){}}
+function loadPrefs(){try{const o=JSON.parse(localStorage.getItem(PREF_KEY)||'{}');if(o.lang)state.lang=o.lang;if(o.active)state.active=o.active;}catch(e){}}
+function save(){
+  try{
+    if(mode==='local')localStorage.setItem(LS_KEY,JSON.stringify(state));
+    else localStorage.setItem(PREF_KEY,JSON.stringify({lang:state.lang,active:state.active}));
+  }catch(e){}
+}
 function T(){return I18N[state.lang];}
+function ensureActive(){if(!state.projects[state.active])state.active=Object.keys(state.projects).sort((a,b)=>(state.projects[a].created||0)-(state.projects[b].created||0))[0]||null;}
+
+/* ============ shared store (Supabase) ============ */
+const shared=()=>mode!=='local';
+function fromRow(r){return {name:r.name||'',pilot:r.pilot||'',mp:r.mp||'',created:Date.parse(r.created_at)||0,ms:{}};}
+function msFromRow(r){return {status:r.status||'ns',owner:r.owner||'',note:r.note||'',lockedDate:r.locked_date||''};}
+async function fetchAll(){
+  const [a,b]=await Promise.all([sb.from('projects').select('*'),sb.from('milestones').select('*')]);
+  if(a.error)throw a.error; if(b.error)throw b.error;
+  const projects={};
+  a.data.forEach(r=>projects[r.id]=fromRow(r));
+  b.data.forEach(r=>{if(projects[r.project_id])projects[r.project_id].ms[r.key]=msFromRow(r);});
+  state.projects=projects;ensureActive();
+}
+function onProjectChange(ev){
+  if(ev.eventType==='DELETE'){delete state.projects[(ev.old||{}).id];ensureActive();}
+  else{const r=ev.new;const ms=(state.projects[r.id]||{}).ms||{};state.projects[r.id]=Object.assign(fromRow(r),{ms});ensureActive();}
+  render();
+}
+function onMilestoneChange(ev){
+  if(ev.eventType==='DELETE'){const r=ev.old||{};const p=state.projects[r.project_id];if(p)delete p.ms[r.key];}
+  else{const r=ev.new;const p=state.projects[r.project_id];if(p)p.ms[r.key]=msFromRow(r);}
+  render();
+}
+function setMode(m){mode=m;renderStatus();}
+function writeErr(res){
+  if(res&&res.error){toast((state.lang==='cn'?'保存失败：':'Not saved: ')+res.error.message);fetchAll().then(()=>render(true)).catch(()=>{});}
+}
+function remote(fn){if(!shared())return;Promise.resolve().then(fn).then(writeErr,e=>writeErr({error:e}));}
+async function connect(){
+  if(!SUPABASE_URL||!SUPABASE_ANON_KEY||!window.supabase){loadLocal();return false;}
+  loadPrefs();setMode('connecting');
+  sb=window.supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY);
+  try{await fetchAll();setMode('live');}catch(e){setMode('offline');}
+  sb.channel('gtm-board')
+    .on('postgres_changes',{event:'*',schema:'public',table:'projects'},onProjectChange)
+    .on('postgres_changes',{event:'*',schema:'public',table:'milestones'},onMilestoneChange)
+    .subscribe(st=>{
+      if(st==='SUBSCRIBED'){fetchAll().then(()=>{setMode('live');render();}).catch(()=>setMode('offline'));}
+      else if(st==='CHANNEL_ERROR'||st==='TIMED_OUT'||st==='CLOSED')setMode('offline');
+    });
+  return true;
+}
 
 /* ============ computed milestones ============ */
 function getMilestones(){
@@ -352,7 +413,17 @@ function cardStatus(m){
 }
 
 /* ============ render ============ */
-function render(){
+function editing(){const a=document.activeElement;return a&&(a.tagName==='INPUT'||a.tagName==='SELECT');}
+function renderStatus(){
+  const el=document.getElementById('syncPill');if(!el)return;
+  el.hidden=mode==='local';
+  const cn=state.lang==='cn';
+  el.className='sync '+mode;
+  el.lastChild.textContent=mode==='live'?(cn?'实时同步':'Live'):mode==='connecting'?(cn?'连接中…':'Connecting…'):(cn?'连接中断，修改可能未保存':'Offline: changes may not save');
+}
+function render(force){
+  if(!force&&editing()){pendingRender=true;return;}
+  pendingRender=false;renderStatus();
   const t=T(), p=state.projects[state.active];
   document.documentElement.lang = state.lang==='cn'?'zh-CN':'en';
   document.title=t.title;
@@ -428,7 +499,7 @@ function renderTimeline(ms,t){
 function renderGroups(ms,t){
   const p=state.projects[state.active];
   const body=document.getElementById('groupsBody');
-  if(!ms.length){body.innerHTML='<div class="empty-hint">'+t.needDates+'</div>';return;}
+  if(!ms.length){body.innerHTML='<div class="empty-hint">'+(p?t.needDates:(state.lang==='cn'?'还没有项目。点击「新建」创建第一个项目，或用「导入备份」导入数据。':'No projects yet. Click New to create one, or use Import Backup.'))+'</div>';return;}
   const phases=['media','web','region','kol'];
   let html='';
   phases.forEach(ph=>{
@@ -479,7 +550,7 @@ function cardHTML(m,t,p){
 function bades_fix(b,m,t){return m.reminder?'<span class="badge remind-b">'+t.reminder+'</span>':b;}
 
 function renderReview(ms,t){
-  const p=state.projects[state.active];
+  const p=state.projects[state.active]||{ms:{}};
   const real=ms.filter(m=>!m.reminder);
   const buckets={overdue:[],soon:[],mid:[]};
   real.forEach(m=>{
@@ -508,35 +579,54 @@ function renderReview(ms,t){
 
 /* ============ actions ============ */
 function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
-function setLang(l){state.lang=l;save();render();}
-function switchProject(id){state.active=id;save();render();}
-function setBase(k,v){const p=state.projects[state.active];if(!p)return;p[k]=v;save();render();}
-function setStatus(key,st){const p=state.projects[state.active];if(!p)return;if(!p.ms[key])p.ms[key]={};p.ms[key].status=st;save();render();}
-function setField(key,f,v){const p=state.projects[state.active];if(!p)return;if(!p.ms[key])p.ms[key]={};p.ms[key][f]=v;save();}
-function lockDate(key,v){const p=state.projects[state.active];if(!p||!v)return;if(!p.ms[key])p.ms[key]={};p.ms[key].lockedDate=v;save();render();}
-function unlock(key){const p=state.projects[state.active];if(!p||!p.ms[key])return;delete p.ms[key].lockedDate;save();render();}
+function setLang(l){state.lang=l;save();render(true);}
+function switchProject(id){state.active=id;save();render(true);}
+function setBase(k,v){const p=state.projects[state.active];if(!p)return;p[k]=v;save();render(true);
+  const id=state.active;remote(()=>sb.from('projects').update({[k]:v||null}).eq('id',id));}
+function msWrite(key,patch,col){
+  const p=state.projects[state.active];if(!p)return null;
+  if(!p.ms[key])p.ms[key]={};Object.assign(p.ms[key],patch);save();
+  const id=state.active;remote(()=>sb.from('milestones').upsert(Object.assign({project_id:id,key,updated_at:new Date().toISOString()},col),{onConflict:'project_id,key'}));
+  return p;
+}
+function setStatus(key,st){if(msWrite(key,{status:st},{status:st}))render(true);}
+function setField(key,f,v){msWrite(key,{[f]:v},{[f]:v});}
+function lockDate(key,v){if(!v)return;if(msWrite(key,{lockedDate:v},{locked_date:v}))render(true);}
+function unlock(key){const p=state.projects[state.active];if(!p||!p.ms[key])return;msWrite(key,{lockedDate:''},{locked_date:null});render(true);}
+function createProject(id,proj){
+  state.projects[id]=proj;state.active=id;save();render(true);
+  remote(async()=>{
+    const r=await sb.from('projects').upsert({id,name:proj.name,pilot:proj.pilot||null,mp:proj.mp||null,created_at:new Date(proj.created||Date.now()).toISOString()});
+    if(r.error)return r;
+    const rows=Object.keys(proj.ms||{}).map(k=>{const m=proj.ms[k];return {project_id:id,key:k,status:m.status||'ns',owner:m.owner||'',note:m.note||'',locked_date:m.lockedDate||null};});
+    return rows.length?sb.from('milestones').upsert(rows,{onConflict:'project_id,key'}):r;
+  });
+}
 function newProject(){
   const t=T();let i=1,name=t.newProjName;
   while(Object.values(state.projects).some(p=>p.name===name)){name=t.newProjName+' '+i;i++;}
-  const id='p'+Date.now();
-  state.projects[id]={name,pilot:'',mp:'',ms:{}};
-  state.active=id;save();render();
+  createProject('p'+Date.now().toString(36)+Math.random().toString(36).slice(2,6),{name,pilot:'',mp:'',ms:{},created:Date.now()});
   document.getElementById('inPilot').focus();
 }
 function deleteProject(){
   const t=T();
   if(!state.active||!state.projects[state.active])return;
   if(!confirm(t.confirmDel))return;
-  delete state.projects[state.active];
-  state.active=Object.keys(state.projects)[0]||null;
-  if(!state.active)newProjectSilent();
-  save();render();
+  const id=state.active;
+  delete state.projects[id];
+  ensureActive();
+  if(!state.active&&!shared())newProjectSilent();
+  save();render(true);
+  remote(()=>sb.from('projects').delete().eq('id',id));
 }
+function newProjectSilent(){const id='p'+Date.now();state.projects[id]={name:T().newProjName,pilot:'',mp:'',ms:{},created:Date.now()};state.active=id;}
+function toast(msg){const el=document.getElementById('toast');el.textContent=msg;el.classList.add('show');clearTimeout(toast._t);toast._t=setTimeout(()=>el.classList.remove('show'),2200);}
 function renameProject(){
   const p=state.projects[state.active];if(!p)return;
   const n=prompt(T().renamePrompt,p.name);
   if(n===null)return;const v=n.trim();if(!v)return;
-  p.name=v;save();render();
+  p.name=v;save();render(true);
+  const id=state.active;remote(()=>sb.from('projects').update({name:v}).eq('id',id));
 }
 function exportData(){
   const data=JSON.stringify({app:'gtm-milestone-dashboard',version:2,exported:new Date().toISOString(),projects:state.projects,active:state.active},null,2);
@@ -565,9 +655,10 @@ function importData(input){
     }
     if(!Object.keys(clean).length){toast(t.importBad);return;}
     if(!confirm(t.importConfirm))return;
-    Object.assign(state.projects,clean);
-    state.active=(o.active&&clean[o.active])?o.active:Object.keys(clean)[0];
-    save();render();toast(t.imported);
+    const ids=Object.keys(clean);
+    ids.forEach((id,n)=>{clean[id].created=clean[id].created||Date.now()+n;createProject(id.replace(/[^A-Za-z0-9_-]/g,'_'),clean[id]);});
+    if(clean[o.active])state.active=o.active.replace(/[^A-Za-z0-9_-]/g,'_');
+    save();render(true);toast(t.imported);
   };
   rd.readAsText(f);
 }
@@ -607,12 +698,12 @@ function fallbackCopy(text,t){
 }
 
 /* ============ init ============ */
-load();
-if(!state.active||!state.projects[state.active]){
-  const t=T();const id='p'+Date.now();
-  state.projects[id]={name:t.newProjName,pilot:'',mp:'',ms:{}};state.active=id;save();
-}
-render();
+document.addEventListener('focusout',()=>setTimeout(()=>{if(pendingRender&&!editing())render(true);},0));
+connect().then(isShared=>{
+  if(!isShared&&(!state.active||!state.projects[state.active])){newProjectSilent();save();}
+  ensureActive();render(true);
+});
+render(true);
 </script>
 </body>
 </html>
