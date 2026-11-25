@@ -11,3 +11,9 @@ Data is saved in your browser (localStorage). Use **Export Backup** / **Import B
 3. Paste that URL into `SHEETS_URL` near the top of the script in `index.html`.
 
 Without it, the dashboard saves data in each browser only.
+
+## Backups
+
+- **Daily backup:** add `google-apps-script-backup.js` as a second file in the same Apps Script project, then run `setupDailyBackup` once. A `.json` backup is saved to the Drive folder "GTM Dashboard Backups" every night, and files older than 60 days are cleared.
+- **Restore:** download a backup file from that folder and use **Import Backup** on the dashboard.
+- **Sheet history:** in the Google Sheet, File → Version history shows and restores earlier states.
