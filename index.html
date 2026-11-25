@@ -418,7 +418,7 @@ function cardStatus(m){
 }
 
 /* ============ render ============ */
-function editing(){const a=document.activeElement;return a&&(a.tagName==='INPUT'||a.tagName==='SELECT');}
+function editing(){const a=document.activeElement;return !!(a&&a.tagName==='INPUT'&&document.getElementById('groupsBody').contains(a));}
 function renderStatus(){
   const el=document.getElementById('syncPill');if(!el)return;
   el.hidden=mode==='local';
@@ -455,8 +455,9 @@ function render(force){
   const sel=document.getElementById('projSelect');
   sel.innerHTML=Object.keys(state.projects).map(id=>'<option value="'+id+'"'+(id===state.active?' selected':'')+'>'+esc(state.projects[id].name)+'</option>').join('');
   if(p){
-    document.getElementById('inPilot').value=p.pilot||'';
-    document.getElementById('inMP').value=p.mp||'';
+    const ae=document.activeElement;
+    if(ae!==document.getElementById('inPilot'))document.getElementById('inPilot').value=p.pilot||'';
+    if(ae!==document.getElementById('inMP'))document.getElementById('inMP').value=p.mp||'';
   }else{
     document.getElementById('inPilot').value='';document.getElementById('inMP').value='';
   }
