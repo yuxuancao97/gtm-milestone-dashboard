@@ -126,7 +126,7 @@
   .sync{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:var(--ink-3);}
   .sync i{width:8px;height:8px;border-radius:50%;background:var(--ink-3);}
   .sync.live i{background:var(--green);box-shadow:0 0 0 3px var(--green-bg);}
-  .sync.offline{color:var(--red);} .sync.offline i{background:var(--red);}
+  .sync.saving i{background:var(--orange);} .sync.offline{color:var(--red);} .sync.offline i{background:var(--red);}
   @media (max-width:860px){
     .stats{grid-template-columns:repeat(2,1fr);}
     .review-grid{grid-template-columns:1fr;}
@@ -348,7 +348,8 @@ function ensureActive(){if(!state.projects[state.active])state.active=Object.key
 
 /* ============ shared store (Google Sheet) ============ */
 const shared=()=>mode!=='local';
-let rev=null, queue=[], busy=false;
+let rev=null, queue=[], busy=false, polling=false, editSeq=0, failCount=0;
+const MAX_BATCH=40;   // changes sent per save request
 const DATE_OK=/^\d{4}-\d{2}-\d{2}$/;
 function normalizeAll(src){
   const out={};
@@ -365,33 +366,51 @@ async function api(body){
   if(!res.ok)throw new Error('HTTP '+res.status);
   return res.json();
 }
-function applyRemote(j){if(!j||j.unchanged||!j.projects)return false;rev=j.rev;state.projects=normalizeAll(j.projects);ensureActive();return true;}
-function send(op){if(!shared())return;queue.push(op);flush();}
+// Never step backwards: ignore a reply older than what this page already shows.
+function applyRemote(j){
+  if(!j||j.unchanged||!j.projects)return false;
+  if(rev!=null&&typeof j.rev==='number'&&j.rev<rev)return false;
+  rev=j.rev;state.projects=normalizeAll(j.projects);ensureActive();return true;
+}
+function ok(){failCount=0;setMode('live');}
+function fail(){failCount++;setMode('offline');}
+const unsaved=()=>busy||queue.length>0;
+function send(op){if(!shared())return;editSeq++;queue.push(op);renderStatus();flush();}
 async function flush(){
   if(busy||!queue.length)return;
-  busy=true;const ops=queue.splice(0);
+  busy=true;renderStatus();
+  const ops=queue.splice(0,MAX_BATCH);
+  let refetch=false;
   try{
     const j=await api({ops});
-    if(j.error&&j.retry){queue.unshift(...ops);setMode('offline');}
-    else if(j.error){toast((state.lang==='cn'?'保存失败：':'Not saved: ')+j.error);rev=null;await poll(true);}
-    else{setMode('live');if(!queue.length){applyRemote(j);render();}}
-  }catch(e){queue.unshift(...ops);setMode('offline');}
-  busy=false;
+    if(j.error&&j.retry){queue.unshift(...ops);fail();}
+    else if(j.error){ok();toast((state.lang==='cn'?'保存失败：':'Not saved: ')+j.error);rev=null;refetch=true;}
+    else{ok();if(!queue.length){applyRemote(j);render();}}
+  }catch(e){queue.unshift(...ops);fail();}
+  busy=false;renderStatus();
+  if(refetch)await poll(true);
   if(queue.length&&mode==='live')flush();
 }
+// Reads other people's changes. A reply is dropped if this page changed something
+// while it was in flight, so a local edit is never overwritten by older data.
 async function poll(force){
-  if(!shared()||(!force&&(busy||queue.length||document.hidden)))return;
-  try{const j=await api();setMode('live');if(applyRemote(j))render();}
-  catch(e){setMode('offline');}
+  if(!shared()||polling)return;
+  if(!force&&(unsaved()||document.hidden))return;
+  polling=true;const seq=editSeq;
+  try{const j=await api();ok();if(seq===editSeq&&!unsaved()&&applyRemote(j))render();}
+  catch(e){fail();}
+  finally{polling=false;}
 }
 function setMode(m){if(mode!==m){mode=m;renderStatus();}}
 async function connect(){
   if(!SHEETS_URL){loadLocal();return false;}
   loadPrefs();mode='connecting';renderStatus();
   await poll(true);
-  const tick=async()=>{try{if(queue.length)await flush();else await poll();}finally{setTimeout(tick,POLL_MS);}};
+  // Back off when Google can't be reached: 2s, 4s, 8s, then every 16s.
+  const tick=async()=>{try{if(queue.length)await flush();else await poll();}finally{setTimeout(tick,POLL_MS*Math.pow(2,Math.min(failCount,3)));}};
   setTimeout(tick,POLL_MS);
   document.addEventListener('visibilitychange',()=>{if(!document.hidden)poll();});
+  window.addEventListener('beforeunload',e=>{if(unsaved()){e.preventDefault();e.returnValue='';}});
   return true;
 }
 
@@ -424,8 +443,9 @@ function renderStatus(){
   const el=document.getElementById('syncPill');if(!el)return;
   el.hidden=mode==='local';
   const cn=state.lang==='cn';
-  el.className='sync '+mode;
-  el.lastChild.textContent=mode==='live'?(cn?'实时同步':'Live'):mode==='connecting'?(cn?'连接中…':'Connecting…'):(cn?'暂时连不上表格，修改会自动重试':"Can't reach the Sheet; changes will retry");
+  const saving=mode==='live'&&unsaved();
+  el.className='sync '+(saving?'saving':mode);
+  el.lastChild.textContent=saving?(cn?'保存中…':'Saving…'):mode==='live'?(cn?'实时同步':'Live'):mode==='connecting'?(cn?'连接中…':'Connecting…'):(cn?'暂时连不上表格，修改会自动重试':"Can't reach the Sheet; changes will retry");
 }
 function render(force){
   if(!force&&editing()){pendingRender=true;return;}
@@ -542,8 +562,8 @@ function cardHTML(m,t,p){
       +'<button class="'+(st==='done'?'on-done':'')+'" onclick="setStatus(\''+m.key+'\',\'done\')">'+t.done+'</button>'
       +'</div>'
       +'<div class="ctrl-row">'
-      +'<input placeholder="'+t.ownerPh+'" value="'+esc(rec.owner||'')+'" onchange="setField(\''+m.key+'\',\'owner\',this.value)">'
-      +'<input placeholder="'+t.notePh+'" value="'+esc(rec.note||'')+'" onchange="setField(\''+m.key+'\',\'note\',this.value)">'
+      +'<input maxlength="500" placeholder="'+t.ownerPh+'" value="'+esc(rec.owner||'')+'" onchange="setField(\''+m.key+'\',\'owner\',this.value)">'
+      +'<input maxlength="500" placeholder="'+t.notePh+'" value="'+esc(rec.note||'')+'" onchange="setField(\''+m.key+'\',\'note\',this.value)">'
       +'</div>';
   }
   return '<div class="card '+(m.reminder?'reminder-card':cs)+'">'
@@ -626,7 +646,7 @@ function toast(msg){const el=document.getElementById('toast');el.textContent=msg
 function renameProject(){
   const p=state.projects[state.active];if(!p)return;
   const n=prompt(T().renamePrompt,p.name);
-  if(n===null)return;const v=n.trim();if(!v)return;
+  if(n===null)return;const v=n.trim().slice(0,200);if(!v)return;
   p.name=v;save();render(true);
   send({op:'updateProject',id:state.active,fields:{name:v}});
 }

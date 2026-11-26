@@ -10,6 +10,8 @@
  * Backups go to a Drive folder named "GTM Dashboard Backups", one .json file per day.
  * To restore: download a backup file and use Import Backup on the dashboard.
  * Files older than KEEP_DAYS are moved to the Drive trash.
+ *
+ * This file also makes hand edits in the Sheet show up on open dashboards (onEdit below).
  */
 
 const BACKUP_FOLDER = 'GTM Dashboard Backups';
@@ -39,6 +41,18 @@ function dailyBackup() {
   const file = folder_().createFile(name, JSON.stringify(payload, null, 2), 'application/json');
   pruneOld_();
   return file;
+}
+
+/** Runs on its own when someone edits the Sheet by hand, so open dashboards pick up the change. */
+function onEdit() {
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(5000)) return;
+  try {
+    const props = PropertiesService.getScriptProperties();
+    props.setProperty('rev', String((Number(props.getProperty('rev')) || 0) + 1));
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 function folder_() {
